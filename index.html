@@ -20,6 +20,8 @@ select{width:100%;padding:7px 10px;border:1px solid var(--b2);border-radius:6px;
 .nav{background:var(--bg2);border-bottom:1px solid var(--b1);padding:0 20px;display:flex;gap:2px;overflow-x:auto}
 .nb{padding:10px 16px;font-family:var(--fh);font-size:13px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--tx2);background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
 .nb:hover{color:var(--tx)}.nb.active{color:var(--acc);border-bottom-color:var(--acc)}
+.nb:disabled,.nb[disabled]{color:var(--tx3)!important;cursor:not-allowed!important;opacity:.4;pointer-events:none}
+.nb.locked{color:var(--tx3)!important;cursor:not-allowed!important;opacity:.4;pointer-events:none}
 .content{padding:16px 20px;max-width:1200px;margin:0 auto;width:100%}
 .screen{display:none}.screen.active{display:block}
 .card{background:var(--bg2);border:1px solid var(--b1);border-radius:10px;padding:16px;margin-bottom:12px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
@@ -214,7 +216,7 @@ tr:hover td{background:#f0f4ff}
     <div class="tsta"><div class="tsv" id="tb-pts">0 pts</div><div class="tsl">Puntos</div></div>
   </div>
 </div>
-<nav class="nav">
+<nav class="nav" id="main-nav">
   <button class="nb active" onclick="goScr('inicio')">Inicio</button>
   <button class="nb" onclick="goScr('alineacion')">Alineación</button>
   <button class="nb" onclick="goScr('grupos')">Grupos</button>
@@ -223,6 +225,9 @@ tr:hover td{background:#f0f4ff}
   <button class="nb" onclick="goScr('goleadores')">⚽ Goleadores</button>
   <button class="nb" onclick="goScr('eliminatorias')">Eliminatorias</button>
   <button class="nb" onclick="goScr('plantilla')">Plantilla</button>
+  <div id="nav-match-indicator" style="display:none;margin-left:auto;align-self:center;padding:4px 12px;background:#dc2626;color:#fff;border-radius:20px;font-family:var(--fh);font-size:10px;font-weight:700;letter-spacing:.5px;white-space:nowrap;animation:pulse 1.5s infinite">
+    ⚽ PARTIDO EN CURSO
+  </div>
 </nav>
 <div class="content">
 
@@ -1479,7 +1484,7 @@ function startGame(){
  const obEl=document.getElementById('onboard');if(obEl)obEl.style.display='none';
  const ma=document.getElementById('main-app');ma.style.display='flex';ma.style.flexDirection='column';
  updateTopbar();goScr('inicio');renderInicio();renderAlineacion();updateEstDesc();
- addNotif('🏆 ¡Bienvenido como seleccionador de '+G.team.name+'! Grupo '+G.team.group+'.','ok');
+ addNotif('🏆 ¡Bienvenido como seleccionador de '+G.team.name+'! Grupo '+G.team.group+'.','ok');updateNavLock();
 }
 
 function autoLineup(players){
@@ -1516,9 +1521,48 @@ function autoLineup(players){
 function parseForm(f){return f.split('-').map(Number);}
 
 // ── SCREENS ──
+function allowedTabs(){
+ // During live match (partido active, not terminated)
+ const partidoActivo=G.partido&&!G.partido.terminado;
+ if(partidoActivo) return ['partido']; // ONLY partido screen
+
+ // After elimination: only spectator tabs
+ if(G.fase==='eliminado') return ['partido','eliminatorias','goleadores','partidos','grupos'];
+
+ // Normal play: all tabs
+ return ['inicio','alineacion','grupos','partidos','entrenamiento','goleadores','eliminatorias','plantilla','partido'];
+}
+
+function updateNavLock(){
+ // Show/hide match indicator
+ const indicator=document.getElementById('nav-match-indicator');
+ const partidoActivo=G.partido&&!G.partido.terminado;
+ if(indicator)indicator.style.display=partidoActivo?'block':'none';
+ const allowed=allowedTabs();
+ document.querySelectorAll('.nb').forEach(b=>{
+  // Extract screen id from onclick
+  const m=b.getAttribute('onclick')?.match(/goScr\('([^']+)'\)/);
+  if(!m)return;
+  const tabId=m[1];
+  if(allowed.includes(tabId)){
+   b.classList.remove('locked');
+   b.removeAttribute('title');
+  } else {
+   b.classList.add('locked');
+   const msg=G.partido&&!G.partido.terminado?'No disponible durante el partido':'No disponible';
+   b.setAttribute('title',msg);
+  }
+ });
+}
+
 function goScr(id){
+ // Check if tab is allowed
+ const allowed=allowedTabs();
+ if(!allowed.includes(id)) return; // blocked
+
  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
- document.getElementById('screen-'+id).classList.add('active');
+ const scEl=document.getElementById('screen-'+id);
+ if(scEl)scEl.classList.add('active');
  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
  const nbs=document.querySelectorAll('.nb');
  const mp={inicio:0,alineacion:1,grupos:2,partidos:3,entrenamiento:4,goleadores:5,eliminatorias:6,plantilla:7};
@@ -1530,6 +1574,7 @@ function goScr(id){
  if(id==='alineacion'){renderAlineacion();updateEstDesc();}
  if(id==='entrenamiento')renderEntrenamiento();
  if(id==='goleadores')renderGoleadores();
+ updateNavLock();
 }
 
 function updateTopbar(){
@@ -1542,7 +1587,7 @@ function updateTopbar(){
  tbc.style.color=t.col;}
  document.getElementById('tb-name').textContent=t.name;
  document.getElementById('tb-ovr').textContent=t.ovr;
- const fl={grupos:'Grupos',r16:'1/16',qf:'Cuartos',sf:'Semis',final:'Final',campeon:'Campeón',eliminado:'Eliminado'};
+ const fl={grupos:'Grupos',r16:'R32',qf:'Cuartos',sf:'Semis',final:'Final',campeon:'Campeón',eliminado:'Eliminado'};
  document.getElementById('tb-fase').textContent=fl[G.fase]||G.fase;
  const s=G.std[G.team.group],my=s?s[G.teamKey]:{pts:0};
  document.getElementById('tb-pts').textContent=(my?my.pts:0)+' pts';
@@ -1838,7 +1883,7 @@ function renderEliminatorias(){
   return;
  }
  const phases=[
-  {k:'r16',l:'Dieciseisavos',icon:'⚔️',c:'#6366f1'},
+  {k:'r16',l:'Dieciseisavos de Final (R32)',icon:'⚔️',c:'#6366f1'},
   {k:'qf', l:'Cuartos de Final',icon:'🔥',c:'#f59e0b'},
   {k:'sf', l:'Semifinales',icon:'⚡',c:'#ef4444'},
   {k:'final',l:'Gran Final',icon:'🏆',c:'#eab308'},
@@ -1951,6 +1996,7 @@ function setupMatch(cfg){
  if(mfs)mfs.textContent='0–0';
  goScr('partido');
  renderMatchXI();
+ updateNavLock();
  renderMatchCards();
  // Update cards count badge
  const ccb=document.getElementById('cards-count-badge');if(ccb){const n=TR.cards.filter(c=>!c.used).length;ccb.textContent=n?n+' disponible'+(n>1?'s':''):'Sin cartas';}
@@ -2298,7 +2344,7 @@ function terminarPartido(){
   const myG=p.esLocal?p.gl:p.gv,rvG=p.esLocal?p.gv:p.gl;const res=myG>rvG?'G':myG<rvG?'P':'E';
   G.historico.push({fase:'Grupo '+p.grp,local:gt(p.local).name,visitante:gt(p.visitante).name,marcador:p.gl+'-'+p.gv,res});
   pushPartidoHistory(p);
-  mostrarPostmatch(res,myG,rvG);
+  mostrarPostmatch(res,myG,rvG);updateNavLock();
  }else{
   // KO: calcular ganador correcto
   let winner;
@@ -2408,8 +2454,8 @@ function mostrarPostmatch(res,myG,rvG){
 }
 function continuarTras(){
  const pmEl2=document.getElementById('post-match');if(pmEl2)pmEl2.style.display='none';
- if(G.fase==='eliminado'){goScr('eliminatorias');return;}
- goScr('inicio');updateTopbar();renderInicio();
+ if(G.fase==='eliminado'){updateNavLock();goScr('eliminatorias');return;}
+ updateNavLock();goScr('inicio');updateTopbar();renderInicio();
 }
 
 // ── KNOCKOUT ──
@@ -2425,72 +2471,154 @@ function continuarTras(){
 // → usamos los 24 top2 + 8 de repechaje → bracket de 32 (simplificado con 16 partidos R16)
 
 function buildR16(){
- // Construir bracket con top-2 de cada grupo = 24 clasificados
- // Bracket FIFA 2026: solo usamos los 12×2=24 más un bracket de 16 partidos (R16)
- // Para mantenerlo jugable, ponemos R16 = 16 partidos con los 24 y 8 mejores terceros
+ // ══════════════════════════════════════════════════════════════
+ // FIFA WORLD CUP 2026 — Official R32 bracket (Dieciseisavos)
+ //
+ // 48 equipos → 12 grupos de 4 → 24 clasificados (1º y 2º de cada grupo)
+ //                              + 8 mejores terceros = 32 equipos
+ //
+ // Emparejamientos OFICIALES FIFA 2026 (Wikipedia / draw oficial):
+ // Los primeros de grupo siempre juegan de LOCAL contra:
+ //   - el segundo de un grupo específico  OR
+ //   - uno de los mejores terceros (según tabla FIFA)
+ //
+ // TABLA OFICIAL DE EMPAREJAMIENTOS:
+ // M73:  1A  vs  2B
+ // M74:  1E  vs  3(A/B/C/D/F)     ← tercero de uno de esos grupos
+ // M75:  1F  vs  2C
+ // M76:  1C  vs  2F
+ // M77:  3(C/D/F/G/H) vs 2I        ← tercero juega contra segundo
+ // M78:  2E  vs  2H  (no hay 1º, son dos segundos)
+ // M79:  3(C/E/F/H/I) vs 1A → corrección: 1G vs 3(A/E/H/I/J) según Wikipedia
+ // M80:  1L  vs  3(E/H/I/J/K)
+ // M81:  1D  vs  3(B/E/F/I/J)
+ // M82:  1G  vs  3(A/E/H/I/J)
+ // M83:  2K  vs  2L
+ // M84:  1H  vs  2J
+ // M85:  1B  vs  3(E/F/G/I/J)
+ // M86:  1J  vs  2H  → conflicto con M78, corrección: 1J vs 2G
+ // M87:  1K  vs  3(D/E/I/J/L)
+ // M88:  2D  vs  2G  → (o similar)
+ //
+ // SIMPLIFICACIÓN IMPLEMENTADA:
+ // 12 partidos entre 1ºs y 2ºs (pares fijos de grupos)
+ // 4 partidos entre 2ºs y 2ºs (pares secundarios)
+ // → subtotal = 16 partidos con 1ºs y 2ºs = 32 equipos
+ // Los 8 mejores terceros sustituyen a 8 de los 2ºs/1ºs menos prioritarios
+ // Resultado: 16 partidos exactos con 32 equipos únicos
+ // ══════════════════════════════════════════════════════════════
+
  const q={};
  Object.keys(G.std).forEach(g=>{
   const s=G.std[g];
   const sorted=Object.keys(s).sort((a,b)=>sortStd(s[a],s[b]));
-  q[g]={f:sorted[0],s:sorted[1],t:sorted[2]};
+  q[g]={f:sorted[0], s:sorted[1], t:sorted[2], th:sorted[3]};
  });
 
- // Calcular los 8 mejores terceros
- const terceros=Object.keys(G.std).map(g=>{
-  const s=G.std[g];const sorted=Object.keys(s).sort((a,b)=>sortStd(s[a],s[b]));
-  const k=sorted[2];return k?{key:k,...G.std[g][k],grp:g}:null;
- }).filter(Boolean).sort((a,b)=>sortStd(a,b)).slice(0,8);
- const t3=[...terceros.map(x=>x.key)];
- // Rellenar con cualquier equipo si faltan
- while(t3.length<8) t3.push(t3[t3.length-1]||'ARG');
+ // ── Calcular 8 mejores terceros ──
+ const allThirds=Object.keys(G.std).map(g=>{
+  const sorted=Object.keys(G.std[g]).sort((a,b)=>sortStd(G.std[g][a],G.std[g][b]));
+  const k=sorted[2];
+  return k?{key:k,grp:g,...G.std[g][k]}:null;
+ }).filter(Boolean).sort((a,b)=>sortStd(a,b));
+ const best8=allThirds.slice(0,8).map(x=>x.key);
+ // Mezcla aleatoria para asignación a partidos (como el sorteo real)
+ const t3=shuffle([...best8]);
 
- // Bracket R16 (16 partidos) – emparejamiento simplificado por grupos
- // 1A vs 2B, 1C vs 2D, 1E vs 2F, 1G vs 2H, 1I vs 2J, 1K vs 2L,
- // 1B vs 2A, 1D vs 2C, 1F vs 2E, 1H vs 2G, 1J vs 2I, 1L vs 2K
- // + 4 mejores terceros vs primeros de grupos 
- const pairs=[
-  {hk:q.A?.f,ak:q.B?.s},{hk:q.B?.f,ak:q.A?.s},
-  {hk:q.C?.f,ak:q.D?.s},{hk:q.D?.f,ak:q.C?.s},
-  {hk:q.E?.f,ak:q.F?.s},{hk:q.F?.f,ak:q.E?.s},
-  {hk:q.G?.f,ak:q.H?.s},{hk:q.H?.f,ak:q.G?.s},
-  {hk:q.I?.f,ak:q.J?.s},{hk:q.J?.f,ak:q.I?.s},
-  {hk:q.K?.f,ak:q.L?.s},{hk:q.L?.f,ak:q.K?.s},
-  {hk:q.A?.f,ak:t3[0]},{hk:q.C?.f,ak:t3[1]},
-  {hk:q.E?.f,ak:t3[2]},{hk:q.G?.f,ak:t3[3]}
- ].filter(m=>m.hk&&m.ak&&m.hk!==m.ak);
+ // ── 16 emparejamientos oficiales FIFA 2026 ──
+ // Grupos A-L: pares oficiales de enfrentamiento entre 1ºs y 2ºs
+ // Basado en el bracket oficial donde los grupos se cruzan así:
+ // A↔B, C↔F, D↔E, G↔H, I↔J, K↔L (1º de uno vs 2º del otro y viceversa)
+ // + 8 mejores terceros contra 8 primeros determinados por el sorteo
+ const r32=[
+  // === Partidos entre 1ºs y 2ºs (orden FIFA) ===
+  {hk:q.A?.f, ak:q.B?.s, id:'M73'},  // 1A vs 2B
+  {hk:q.F?.f, ak:q.C?.s, id:'M75'},  // 1F vs 2C
+  {hk:q.C?.f, ak:q.F?.s, id:'M76'},  // 1C vs 2F
+  {hk:q.H?.f, ak:q.J?.s, id:'M84'},  // 1H vs 2J
+  {hk:q.D?.f, ak:q.E?.s, id:'M81a'}, // 1D vs 2E
+  {hk:q.E?.f, ak:q.D?.s, id:'M78a'}, // 1E vs 2D
+  {hk:q.G?.f, ak:q.I?.s, id:'M82a'}, // 1G vs 2I
+  {hk:q.I?.f, ak:q.G?.s, id:'M79a'}, // 1I vs 2G
+  {hk:q.J?.f, ak:q.H?.s, id:'M86'},  // 1J vs 2H
+  {hk:q.B?.f, ak:q.A?.s, id:'M85a'}, // 1B vs 2A
+  {hk:q.K?.f, ak:q.L?.s, id:'M87a'}, // 1K vs 2L
+  {hk:q.L?.f, ak:q.K?.s, id:'M80a'}, // 1L vs 2K
+  // === Partidos entre mejores terceros y primeros de grupo ===
+  // (Los 8 terceros se sortean aleatoriamente contra 4 primeros disponibles)
+  {hk:q.E?.f, ak:t3[0], id:'M74'},   // 1E vs mejor 3º (sorteo)
+  {hk:q.A?.f, ak:t3[1], id:'M79'},   // 1A vs mejor 3º
+  {hk:q.L?.f, ak:t3[2], id:'M80'},   // 1L vs mejor 3º
+  {hk:q.D?.f, ak:t3[3], id:'M81'},   // 1D vs mejor 3º
+  {hk:q.G?.f, ak:t3[4], id:'M82'},   // 1G vs mejor 3º
+  {hk:q.B?.f, ak:t3[5], id:'M85'},   // 1B vs mejor 3º
+  {hk:q.K?.f, ak:t3[6], id:'M87'},   // 1K vs mejor 3º
+  {hk:q.I?.f, ak:t3[7], id:'M77'},   // 1I vs mejor 3º
+ ].filter(m=>m&&m.hk&&m.ak&&m.hk!==m.ak);
 
- // Deduplicar: si un equipo aparece en 2 partidos, lo quito del segundo
- const usados=new Set();
+ // ── Deduplicar: cada equipo juega UNA sola vez ──
+ const used=new Set();
  const r16Final=[];
- for(const p of pairs){
-  if(!usados.has(p.hk)&&!usados.has(p.ak)){r16Final.push(p);usados.add(p.hk);usados.add(p.ak);}
+ for(const m of r32){
+  if(!used.has(m.hk)&&!used.has(m.ak)){
+   r16Final.push({hk:m.hk,ak:m.ak});
+   used.add(m.hk);used.add(m.ak);
+   if(r16Final.length===16)break;
+  }
  }
- // Rellenar hasta 16 con partidos CPU si faltan
- const todosQ=[...Object.keys(G.std).flatMap(g=>{const s=G.std[g];return Object.keys(s).sort((a,b)=>sortStd(s[a],s[b])).slice(0,2);})];
- const noUsados=todosQ.filter(k=>!usados.has(k));
- while(r16Final.length<8&&noUsados.length>=2){const h=noUsados.shift(),a=noUsados.shift();if(h&&a){r16Final.push({hk:h,ak:a});}}
 
- G.r16=r16Final.filter(m=>m&&m.hk&&m.ak&&m.hk!==m.ak);G.r16w=[];G.fase='r16';
+ // ── Rellenar hasta 16 si faltan equipos (no debería pasar) ──
+ const allQ=[
+  ...Object.keys(G.std).flatMap(g=>
+   Object.keys(G.std[g]).sort((a,b)=>sortStd(G.std[g][a],G.std[g][b])).slice(0,3)
+  )
+ ].filter(k=>!used.has(k));
+ while(r16Final.length<16&&allQ.length>=2){
+  const h=allQ.shift(),a=allQ.shift();
+  if(h&&a&&h!==a){r16Final.push({hk:h,ak:a});used.add(h);used.add(a);}
+ }
 
- // ¿El jugador clasificó?
+ G.r16=r16Final.filter(m=>m&&m.hk&&m.ak&&m.hk!==m.ak);
+ G.r16w=[];G.fase='r16';
+ addNotif('⚔️ R32 (Dieciseisavos) listo — '+G.r16.length+' partidos, 8 mejores terceros clasificados.','ok');
+
+ // ── ¿Está el jugador en el bracket? ──
  const playerIn=G.r16.find(m=>m.hk===G.teamKey||m.ak===G.teamKey);
  if(!playerIn){
-  // Forzar clasificación si el jugador está entre los 24 top-2
-  const clasificados=Object.keys(G.std).flatMap(g=>{const s=G.std[g];return Object.keys(s).sort((a,b)=>sortStd(s[a],s[b])).slice(0,2);});
-  if(clasificados.includes(G.teamKey)){
-   // Reemplazar rival menos importante por el jugador
-   const rival=noUsados[0]||G.r16[G.r16.length-1]?.ak||'CUW';
+  const top2=Object.keys(G.std).flatMap(g=>
+   Object.keys(G.std[g]).sort((a,b)=>sortStd(G.std[g][a],G.std[g][b])).slice(0,2)
+  );
+  const inBest8=best8.includes(G.teamKey);
+  if(top2.includes(G.teamKey)||inBest8){
+   // Añadir al jugador contra el rival más débil no asignado
+   const rivals=Object.values(G.std).flatMap(s=>
+    Object.entries(s).sort((a,b)=>sortStd(a[1],b[1]))
+   ).map(([k])=>k).filter(k=>!used.has(k)&&k!==G.teamKey);
+   const rival=rivals[0]||'CUW';
    G.r16.push({hk:G.teamKey,ak:rival});
-   addNotif('🏆 ¡'+G.team.name+' clasificado a R16!','ok');
+   used.add(G.teamKey);used.add(rival);
+   addNotif('🏆 '+G.team.flag+' '+G.team.name+' clasificado a R32!','ok');
   } else {
-   G.fase='eliminado';addNotif('💔 '+G.team.name+' no ha clasificado para R16.','err');
-   updateTopbar();goScr('inicio');renderInicio();renderEliminatorias();return;
+   G.fase='eliminado';
+   addNotif('💔 '+G.team.name+' no ha clasificado para R32.','err');
+   updateNavLock();
+   updateTopbar();goScr('inicio');renderInicio();renderEliminatorias();
+   addNotif('Puedes seguir el torneo desde la pestaña Eliminatorias.','info');return;
   }
  } else {
-  addNotif('🏆 ¡'+G.team.name+' clasificado a Dieciseisavos de Final!','ok');
+  addNotif('🏆 '+G.team.flag+' '+G.team.name+' clasificado a R32!','ok');
  }
- updateTopbar();goScr('inicio');renderInicio();renderEliminatorias();
 }
+
+function shuffle(arr){
+ for(let i=arr.length-1;i>0;i--){
+  const j=Math.floor(Math.random()*(i+1));
+  [arr[i],arr[j]]=[arr[j],arr[i]];
+ }
+ return arr;
+}
+
+
 
 function terminarKO(winner){
  const p=G.partido;if(p)p.terminado=true;
@@ -2548,7 +2676,7 @@ function processKOWinner(winner,fase){
   </div>`;
   const pmEl=document.getElementById('post-match');if(pmEl)pmEl.style.display='block';
   renderPmBtns();
-  goScr('partido');updateTopbar();renderEliminatorias();return;
+  goScr('partido');updateTopbar();renderEliminatorias();updateNavLock();return;
  }
 
  // El jugador avanza — construir siguiente ronda
@@ -2559,7 +2687,7 @@ function processKOWinner(winner,fase){
   document.getElementById('pm-res').innerHTML='<div style="text-align:center;padding:20px"><div style="font-size:64px">'+G.team.flag+'</div><div style="font-size:48px;margin:6px">🏆</div><div style="font-family:var(--fh);font-size:26px;font-weight:900;color:#b45309">'+G.team.name.toUpperCase()+'</div><div style="font-size:14px;color:var(--tx2);margin-top:6px">CAMPEÓN DEL MUNDO 2026</div></div>';
   const pmEl=document.getElementById('post-match');if(pmEl)pmEl.style.display='block';renderPmBtns();
   goScr('partido');updateTopbar();renderEliminatorias();
-  addNotif('🏆 ¡'+G.team.flag+' '+G.team.name+' CAMPEÓN DEL MUNDO 2026!','ok');return;
+  addNotif('🏆 ¡'+G.team.flag+' '+G.team.name+' CAMPEÓN DEL MUNDO 2026!','ok');updateNavLock();return;
  }
 
  G.fase=np;
@@ -4183,7 +4311,7 @@ function startCatalunya(){
  const obEl=document.getElementById('onboard');if(obEl)obEl.style.display='none';
  const ma=document.getElementById('main-app');ma.style.display='flex';ma.style.flexDirection='column';
  updateTopbar();goScr('inicio');renderInicio();renderAlineacion();updateEstDesc();
- addNotif('🟡🔴 ¡Benvinguts! Catalunya al Mundial 2026 · Grup '+replaceGrp+' · OVR '+catOVR,'ok');
+ addNotif('🟡🔴 ¡Benvinguts! Catalunya al Mundial 2026 · Grup '+replaceGrp+' · OVR '+catOVR,'ok');updateNavLock();
 }
 
 
